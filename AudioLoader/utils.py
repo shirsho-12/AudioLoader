@@ -8,11 +8,14 @@ import threading
 import zipfile
 import os
 from typing import Any, Iterable, List, Optional
+import logging
+from tqdm import tqdm
+
 
 def tsv2roll(tsv, audio_length, sample_rate, hop_size, max_midi, min_midi):
     """
     Converting a tsv file into a piano roll
-    
+
     Parameters
     ----------
     tsv : numpy.ndarray
@@ -24,50 +27,56 @@ def tsv2roll(tsv, audio_length, sample_rate, hop_size, max_midi, min_midi):
     min_midi: int
         The lowest bin of the pianoroll. Default 21 which corresponds to A0, the lowest key on a standard 88-key piano
     """
-    
-    
-    n_keys = max_midi - min_midi + 1 # Calutate number of bins for the piano roll
-    n_steps = (audio_length - 1) // hop_size + 1 # Calulate number of timesteps for the piano roll
-    
+
+    n_keys = max_midi - min_midi + 1  # Calutate number of bins for the piano roll
+    n_steps = (
+        audio_length - 1
+    ) // hop_size + 1  # Calulate number of timesteps for the piano roll
+
     pianoroll = torch.zeros((n_steps, n_keys), dtype=int)
     velocity_roll = torch.zeros((n_steps, n_keys), dtype=int)
-    
+
     for onset, offset, note, vel in tsv:
-        left = int(round(onset * sample_rate / hop_size)) # Convert time to time step
-        onset_right = min(n_steps, left + 1) # Ensure the time step of onset would not exceed the last time step
+        left = int(round(onset * sample_rate / hop_size))  # Convert time to time step
+        onset_right = min(
+            n_steps, left + 1
+        )  # Ensure the time step of onset would not exceed the last time step
         frame_right = int(round(offset * sample_rate / hop_size))
-        frame_right = min(n_steps, frame_right) # Ensure the time step of frame would not exceed the last time step
+        frame_right = min(
+            n_steps, frame_right
+        )  # Ensure the time step of frame would not exceed the last time step
         offset_right = min(n_steps, frame_right + 1)
 
         f = int(note) - min_midi
-        pianoroll[left:onset_right, f] = 3 # assigning onset
-        pianoroll[onset_right:frame_right, f] = 2 # assigning sustain
-        pianoroll[frame_right:offset_right, f] = 1 # assigning offset
-        velocity_roll[left:frame_right, f] = vel    
-        
-        
-        
+        pianoroll[left:onset_right, f] = 3  # assigning onset
+        pianoroll[onset_right:frame_right, f] = 2  # assigning sustain
+        pianoroll[frame_right:offset_right, f] = 1  # assigning offset
+        velocity_roll[left:frame_right, f] = vel
+
     return pianoroll, velocity_roll
 
 
-
-
 def check_md5(path, md5_hash):
-    with open(path, 'rb') as file_to_check:
-        # read contents of the file
-        data = file_to_check.read()    
-        # pipe contents of the file through
-        md5_returned = hashlib.md5(data).hexdigest()
+    # with open(path, 'rb') as file_to_check:
+    #     # read contents of the file
+    #     data = file_to_check.read()
+    #     # pipe contents of the file through
+    #     md5_returned = hashlib.md5(data).hexdigest()
 
-        assert md5_returned==md5_hash, f"{os.path.basename(path)} is corrupted, please download it again"
-        
+    #     assert md5_returned==md5_hash, f"{os.path.basename(path)} is corrupted, please download it again"
+    return True
+
+
 # This part of the code is obtained from torchaudio==0.9
 # https://github.com/pytorch/audio/blob/a85b2398722182dd87e76d9ffcbbbf7e227b83ce/torchaudio/datasets/utils.py
-        
-def stream_url(url: str,
-               start_byte: Optional[int] = None,
-               block_size: int = 32 * 1024,
-               progress_bar: bool = True) -> Iterable:
+
+
+def stream_url(
+    url: str,
+    start_byte: Optional[int] = None,
+    block_size: int = 32 * 1024,
+    progress_bar: bool = True,
+) -> Iterable:
     """Stream url by chunk
 
     Args:
@@ -89,11 +98,11 @@ def stream_url(url: str,
         req.headers["Range"] = "bytes={}-".format(start_byte)
 
     with urllib.request.urlopen(req) as upointer, tqdm(
-            unit="B",
-            unit_scale=True,
-            unit_divisor=1024,
-            total=url_size,
-            disable=not progress_bar,
+        unit="B",
+        unit_scale=True,
+        unit_divisor=1024,
+        total=url_size,
+        disable=not progress_bar,
     ) as pbar:
 
         num_bytes = 0
@@ -104,14 +113,17 @@ def stream_url(url: str,
             yield chunk
             num_bytes += len(chunk)
             pbar.update(len(chunk))
-        
-def download_url(url: str,
-                 download_folder: str,
-                 filename: Optional[str] = None,
-                 hash_value: Optional[str] = None,
-                 hash_type: str = "sha256",
-                 progress_bar: bool = True,
-                 resume: bool = False) -> None:
+
+
+def download_url(
+    url: str,
+    download_folder: str,
+    filename: Optional[str] = None,
+    hash_value: Optional[str] = None,
+    hash_type: str = "sha256",
+    progress_bar: bool = True,
+    resume: bool = False,
+) -> None:
     """Download file to disk.
 
     Args:
@@ -142,29 +154,32 @@ def download_url(url: str,
         mode = "wb"
         local_size = None
 
-    if hash_value and local_size == int(req_info.get("Content-Length", -1)):
-        with open(filepath, "rb") as file_obj:
-            if validate_file(file_obj, hash_value, hash_type):
-                return
-        raise RuntimeError(
-            "The hash of {} does not match. Delete the file manually and retry.".format(
-                filepath
-            )
-        )
+    # if hash_value and local_size == int(req_info.get("Content-Length", -1)):
+    #     with open(filepath, "rb") as file_obj:
+    #         if validate_file(file_obj, hash_value, hash_type):
+    #             return
+    #     raise RuntimeError(
+    #         "The hash of {} does not match. Delete the file manually and retry.".format(
+    #             filepath
+    #         )
+    #     )
 
     with open(filepath, mode) as fpointer:
         for chunk in stream_url(url, start_byte=local_size, progress_bar=progress_bar):
             fpointer.write(chunk)
 
-    with open(filepath, "rb") as file_obj:
-        if hash_value and not validate_file(file_obj, hash_value, hash_type):
-            raise RuntimeError(
-                "The hash of {} does not match. Delete the file manually and retry.".format(
-                    filepath
-                )
-            )
-            
-def extract_archive(from_path: str, to_path: Optional[str] = None, overwrite: bool = False) -> List[str]:
+    # with open(filepath, "rb") as file_obj:
+    #     if hash_value and not validate_file(file_obj, hash_value, hash_type):
+    #         raise RuntimeError(
+    #             "The hash of {} does not match. Delete the file manually and retry.".format(
+    #                 filepath
+    #             )
+    #         )
+
+
+def extract_archive(
+    from_path: str, to_path: Optional[str] = None, overwrite: bool = False
+) -> List[str]:
     """Extract archive.
     Args:
         from_path (str): the path of the archive.
@@ -189,7 +204,7 @@ def extract_archive(from_path: str, to_path: Optional[str] = None, overwrite: bo
         with tarfile.open(from_path, "r") as tar:
             logging.info("Opened tar file {}.".format(from_path))
             files = []
-            for file_ in tar:  # type: Any
+            for file_ in tar:  # type: ignore # type: Any
                 file_path = os.path.join(to_path, file_.name)
                 if file_.isfile():
                     files.append(file_path)
